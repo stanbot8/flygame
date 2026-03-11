@@ -1,0 +1,38 @@
+# C++ build
+build/
+cpp/build/
+*.lib
+*.exp
+*.obj
+*.pdb
+*.exe
+*.dll
+CMakeCache.txt
+CMakeFiles/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# MuJoCo
+*.mjlog
+MUJOCO_LOG.TXT
+*.mjb
+imgui.ini
+
+# Development/debug scripts
+cpp/diag*.py
+cpp/dump_*.py
+cpp/export_*.py
+cpp/*.png
+list_bodies.py
+
+# Loose model files (data/ has the canonical copies)
+cpp/neuromechfly.xml
+cpp/neuromechfly.mjb
