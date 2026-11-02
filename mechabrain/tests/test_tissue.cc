@@ -2057,6 +2057,7 @@ TEST(mixed_lod_step_produces_activity) {
 
 TEST(cross_chunk_step_integration) {
   auto engine = MakeProjectionEngine();
+  engine.config.auto_lod = false;  // Keep both regions spiking during Step()
   engine.Escalate(0);
   engine.Escalate(1);
   CHECK(engine.ActiveCrossLinks() == 1);
@@ -2073,6 +2074,7 @@ TEST(cross_chunk_step_integration) {
   }
 
   // Region B should have been affected by cross-chunk spikes from A
+  CHECK(engine.region_chunk_map[1] >= 0);
   auto& chunk_b = engine.chunks[engine.region_chunk_map[1]];
   for (size_t i = 0; i < chunk_b.neurons.n; ++i) {
     CHECK(std::isfinite(chunk_b.neurons.v[i]));
