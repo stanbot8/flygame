@@ -122,6 +122,11 @@ static bool ParseArgs(int argc, char** argv, AppConfig& cfg) {
         }
         else if (strcmp(arg, "--brain-timeout") == 0 && i + 1 < argc) {
             cfg.brain_timeout = std::strtof(argv[++i], nullptr);
+            // Under 1 ms rounds to a socket timeout of 0, which means wait forever.
+            if (cfg.brain_timeout < 0.001f) {
+                fprintf(stderr, "--brain-timeout must be at least 0.001 seconds\n");
+                return false;
+            }
         }
         else if (strcmp(arg, "--model") == 0 && i + 1 < argc) {
             cfg.model_path = argv[++i];
@@ -671,7 +676,8 @@ int main(int argc, char** argv) {
                 cmd = brain_cmd;
             } else {
                 fprintf(stderr, "[flygame] Lost brain connection at %.3fs sim time "
-                        "(no reply within %.1fs; see --brain-timeout)\n",
+                        "(disconnected, invalid reply, or no reply within %.1fs; "
+                        "raise --brain-timeout for a slow brain)\n",
                         sim.sim_time(), cfg.brain_timeout);
                 brain_lost = true;
                 break;
