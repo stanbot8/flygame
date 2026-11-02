@@ -58,6 +58,7 @@ constexpr int kMaxRegions = 16;
 struct AppConfig {
     std::string brain_host;
     int         brain_port  = 9100;
+    float       brain_timeout = 5.0f;  // seconds to wait for each brain reply
     bool        standalone  = true;
     bool        headless    = false;
     float       dt          = 0.0002f;
@@ -85,6 +86,7 @@ static void PrintUsage(const char* prog) {
     printf("Usage: %s [options]\n\n", prog);
     printf("Options:\n");
     printf("  --brain HOST:PORT   Connect to brain sim (default: standalone)\n");
+    printf("  --brain-timeout SEC Seconds to wait for each brain reply (default: 5)\n");
     printf("  --model PATH        MJCF model file (default: flygym NMF)\n");
     printf("  --headless          No viewer window (max speed)\n");
     printf("  --dt SECONDS        Physics timestep (default: 0.0002)\n");
@@ -117,6 +119,9 @@ static bool ParseArgs(int argc, char** argv, AppConfig& cfg) {
                 cfg.brain_host = val;
             }
             cfg.standalone = false;
+        }
+        else if (strcmp(arg, "--brain-timeout") == 0 && i + 1 < argc) {
+            cfg.brain_timeout = std::strtof(argv[++i], nullptr);
         }
         else if (strcmp(arg, "--model") == 0 && i + 1 < argc) {
             cfg.model_path = argv[++i];
@@ -399,13 +404,15 @@ int main(int argc, char** argv) {
     if (!cfg.standalone && !cfg.use_brain) {
         printf("[flygame] Connecting to brain at %s:%d...\n",
                cfg.brain_host.c_str(), cfg.brain_port);
-        if (tcp.Connect(cfg.brain_host, cfg.brain_port)) {
+        if (tcp.Connect(cfg.brain_host, cfg.brain_port, cfg.brain_timeout)) {
             printf("[flygame] Connected to brain\n");
         } else {
-            printf("[flygame] Could not connect. Running standalone.\n");
-            cfg.standalone = true;
+            fprintf(stderr, "[flygame] Could not connect to brain at %s:%d\n",
+                    cfg.brain_host.c_str(), cfg.brain_port);
+            return 1;
         }
     }
+    bool brain_lost = false;
 
     // Brain thread: decouples brain sim from physics loop so physics
     // runs at full speed while the brain catches up asynchronously.
@@ -662,6 +669,12 @@ int main(int argc, char** argv) {
             if (tcp.Exchange(sensory, n_sensory, brain_cmd)) {
                 brain_cmd.freeze = 0.0f;  // body sim handles freeze
                 cmd = brain_cmd;
+            } else {
+                fprintf(stderr, "[flygame] Lost brain connection at %.3fs sim time "
+                        "(no reply within %.1fs; see --brain-timeout)\n",
+                        sim.sim_time(), cfg.brain_timeout);
+                brain_lost = true;
+                break;
             }
         }
 
@@ -1370,5 +1383,5 @@ int main(int argc, char** argv) {
 #endif
 
     sim.Shutdown();
-    return 0;
+    return brain_lost ? 1 : 0;
 }

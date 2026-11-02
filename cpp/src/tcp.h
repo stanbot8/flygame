@@ -28,6 +28,7 @@
   constexpr SocketType kInvalidSocket = INVALID_SOCKET;
 #else
   #include <arpa/inet.h>
+  #include <netdb.h>
   #include <netinet/tcp.h>
   #include <sys/socket.h>
   #include <unistd.h>
@@ -156,13 +157,20 @@ public:
         setsockopt(sock_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 #endif
 
-        sockaddr_in addr = {};
-        addr.sin_family = AF_INET;
-        addr.sin_port = htons(static_cast<uint16_t>(port));
-        inet_pton(AF_INET, host.c_str(), &addr.sin_addr);
-
-        if (connect(sock_, reinterpret_cast<sockaddr*>(&addr),
-                    sizeof(addr)) != 0) {
+        // Accepts an IPv4 address or a hostname.
+        addrinfo hints = {};
+        hints.ai_family = AF_INET;
+        hints.ai_socktype = SOCK_STREAM;
+        addrinfo* resolved = nullptr;
+        if (getaddrinfo(host.c_str(), std::to_string(port).c_str(),
+                        &hints, &resolved) != 0) {
+            Close();
+            return false;
+        }
+        int rc = connect(sock_, resolved->ai_addr,
+                         static_cast<int>(resolved->ai_addrlen));
+        freeaddrinfo(resolved);
+        if (rc != 0) {
             Close();
             return false;
         }
