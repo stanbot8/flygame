@@ -4,6 +4,45 @@ project(nmfly-sim LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# --- Headless brain server ---
+# NMFLY_SERVER_ONLY builds just the server, so a brain machine needs no MuJoCo.
+option(NMFLY_SERVER_ONLY "Build only nmfly-brain-server (no MuJoCo or viewer)" OFF)
+
+function(add_brain_server mechabrain_dir mjgame_dir)
+    add_executable(nmfly-brain-server src/brain_server.cc)
+    target_include_directories(nmfly-brain-server PRIVATE "${mechabrain_dir}" "${mjgame_dir}")
+    target_compile_definitions(nmfly-brain-server PRIVATE NMFLY_BRAIN=1 _CRT_SECURE_NO_WARNINGS)
+    # mechabrain uses C++23 features (std::expected)
+    set_target_properties(nmfly-brain-server PROPERTIES CXX_STANDARD 23)
+    find_package(OpenMP QUIET)
+    if(OpenMP_CXX_FOUND)
+        target_link_libraries(nmfly-brain-server PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+    if(WIN32)
+        target_link_libraries(nmfly-brain-server PRIVATE ws2_32)
+        target_compile_definitions(nmfly-brain-server PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    endif()
+endfunction()
+
+if(NMFLY_SERVER_ONLY)
+    set(MECHABRAIN_DIR "${CMAKE_SOURCE_DIR}/../mechabrain" CACHE PATH "Path to mechabrain directory")
+    if(EXISTS "${CMAKE_SOURCE_DIR}/../../mujoco-game/types.h")
+        set(_MJGAME_DIR "${CMAKE_SOURCE_DIR}/../../mujoco-game")
+    else()
+        # Only types.h is needed, so download without configuring mujoco-game.
+        include(FetchContent)
+        FetchContent_Declare(mujoco-game
+            GIT_REPOSITORY https://github.com/stanbot8/mujoco-game.git
+            GIT_TAG main
+            SOURCE_SUBDIR do-not-configure
+        )
+        FetchContent_MakeAvailable(mujoco-game)
+        set(_MJGAME_DIR "${mujoco-game_SOURCE_DIR}")
+    endif()
+    add_brain_server("${MECHABRAIN_DIR}" "${_MJGAME_DIR}")
+    return()
+endif()
+
 # --- mujoco-game (shared MuJoCo engine) ---
 if(NOT TARGET mujoco-game)
   if(EXISTS ${CMAKE_SOURCE_DIR}/../../mujoco-game/CMakeLists.txt)
@@ -80,6 +119,9 @@ if(NMFLY_BRAIN)
     # mechabrain uses C++23 features (std::expected)
     set_target_properties(nmfly-sim PROPERTIES CXX_STANDARD 23)
     message(STATUS "Embedded brain: ${MECHABRAIN_DIR}")
+
+    get_target_property(_MJGAME_DIR mujoco-game SOURCE_DIR)
+    add_brain_server("${MECHABRAIN_DIR}" "${_MJGAME_DIR}")
 
     # Copy .brain spec files to exe_dir/data/ if available
     set(_BRAIN_EXAMPLES "${CMAKE_SOURCE_DIR}/../../fwmc/examples")
