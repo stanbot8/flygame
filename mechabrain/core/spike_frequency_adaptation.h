@@ -60,7 +60,9 @@ struct SpikeFrequencyAdaptation {
     }
     float decay = cached_decay;
 
-    for (size_t i = 0; i < neurons.n; ++i) {
+    const int n = static_cast<int>(neurons.n);
+    #pragma omp parallel for schedule(static) if(n > 10000)
+    for (int i = 0; i < n; ++i) {
       // Accumulate calcium on spikes
       if (neurons.spiked[i]) {
         calcium[i] += calcium_increment;

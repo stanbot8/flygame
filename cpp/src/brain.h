@@ -261,7 +261,9 @@ public:
 
         constexpr float kTonicInhib = -3.0f;
 
-        for (size_t i = 0; i < neurons_.n; ++i) {
+        const int n = static_cast<int>(neurons_.n);
+        #pragma omp parallel for schedule(static) if(n > 10000)
+        for (int i = 0; i < n; ++i) {
             int r = neurons_.region[i];
             if (r == sez_region_) {
                 float drive = (neurons_.x[i] < sez_midline_) ? sez_L : sez_R;

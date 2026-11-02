@@ -52,7 +52,9 @@ struct NeuromodulatorEffects {
   // Apply neuromodulatory currents to external input.
   // Call after NeuromodulatorUpdate() and before IzhikevichStep().
   void Apply(NeuronArray& neurons) const {
-    for (size_t i = 0; i < neurons.n; ++i) {
+    const int n = static_cast<int>(neurons.n);
+    #pragma omp parallel for schedule(static) if(n > 10000)
+    for (int i = 0; i < n; ++i) {
       float oa = neurons.octopamine[i];
       float ser = neurons.serotonin[i];
       float da = neurons.dopamine[i];

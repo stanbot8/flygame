@@ -48,9 +48,9 @@ struct GapJunctionTable {
     rectification.push_back(rectify);
   }
 
-  // Persistent buffer for thread-local reduction in PropagateGapCurrents.
+  // Persistent per-junction current buffer for PropagateGapCurrents.
   // Allocated once, reused across timesteps. Avoids per-step heap churn.
-  mutable std::vector<float> omp_reduce_buf_;
+  mutable std::vector<float> junction_current_;
 
   // Propagate gap junction currents into neurons.i_ext.
   // For each junction j:
@@ -58,10 +58,11 @@ struct GapJunctionTable {
   //   neuron_a.i_ext += I   (current into a)
   //   neuron_b.i_ext -= I   (current into b, equal and opposite)
   //
-  // Uses thread-local accumulation buffers with a final reduction pass
-  // to avoid atomic writes (same strategy as SynapseTable::PropagateSpikes).
-  // Each thread accumulates into its own buffer, then buffers are summed.
-  // Eliminates the lock-cmpxchg loop that atomic float adds compile to.
+  // Currents are computed in parallel, then applied serially in junction
+  // order. Each neuron can sit on many junctions, so applying them is not
+  // safe to parallelize directly, and per-thread neuron buffers cost more to
+  // clear than the junctions cost to compute. The result does not depend on
+  // the thread count.
   void PropagateGapCurrents(NeuronArray& neurons) const {
     const int n = static_cast<int>(Size());
     if (n == 0) return;
@@ -69,63 +70,14 @@ struct GapJunctionTable {
     float* i_ext = neurons.i_ext.data();
     const float* v = neurons.v.data();
 
-    #ifdef _OPENMP
-    if (n > 10000) {
-      int n_threads = 1;
-      #pragma omp parallel
-      {
-        #pragma omp single
-        n_threads = omp_get_num_threads();
-      }
-
-      const size_t nn = neurons.n;
-      size_t buf_size = static_cast<size_t>(n_threads) * nn;
-      if (omp_reduce_buf_.size() < buf_size) {
-        omp_reduce_buf_.resize(buf_size);
-      }
-      std::fill(omp_reduce_buf_.begin(),
-                omp_reduce_buf_.begin() + static_cast<ptrdiff_t>(buf_size),
-                0.0f);
-
-      #pragma omp parallel num_threads(n_threads)
-      {
-        int tid = omp_get_thread_num();
-        float* local = omp_reduce_buf_.data() + static_cast<size_t>(tid) * nn;
-
-        #pragma omp for schedule(static)
-        for (int j = 0; j < n; ++j) {
-          uint32_t a = neuron_a[j];
-          uint32_t b = neuron_b[j];
-          float dv = v[b] - v[a];
-          float g = conductance[j];
-
-          float r = rectification[j];
-          if (r < 1.0f && dv < 0.0f) {
-            g *= r;
-          }
-
-          float I = g * dv;
-          local[a] += I;
-          local[b] -= I;
-        }
-
-        // Reduction: each thread adds its buffer into i_ext
-        #pragma omp for schedule(static)
-        for (int i = 0; i < static_cast<int>(nn); ++i) {
-          for (int t = 0; t < n_threads; ++t) {
-            i_ext[i] += omp_reduce_buf_[static_cast<size_t>(t) * nn + static_cast<size_t>(i)];
-          }
-        }
-      }
-      return;
+    if (junction_current_.size() < static_cast<size_t>(n)) {
+      junction_current_.resize(static_cast<size_t>(n));
     }
-    #endif
+    float* current = junction_current_.data();
 
-    // Scalar fallback (single-threaded or small junction count)
+    #pragma omp parallel for schedule(static) if(n > 10000)
     for (int j = 0; j < n; ++j) {
-      uint32_t a = neuron_a[j];
-      uint32_t b = neuron_b[j];
-      float dv = v[b] - v[a];
+      float dv = v[neuron_b[j]] - v[neuron_a[j]];
       float g = conductance[j];
 
       float r = rectification[j];
@@ -133,9 +85,12 @@ struct GapJunctionTable {
         g *= r;
       }
 
-      float I = g * dv;
-      i_ext[a] += I;
-      i_ext[b] -= I;
+      current[j] = g * dv;
+    }
+
+    for (int j = 0; j < n; ++j) {
+      i_ext[neuron_a[j]] += current[j];
+      i_ext[neuron_b[j]] -= current[j];
     }
   }
 

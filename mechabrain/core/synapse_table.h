@@ -239,8 +239,10 @@ struct SynapseTable {
   // Call this once per timestep BEFORE PropagateSpikes.
   void DeliverDelayed(float* i_syn) {
     if (!HasDelays()) return;
-    for (size_t i = 0; i < n_neurons; ++i) {
-      size_t slot = i * ring_size + ring_head;
+    const int n = static_cast<int>(n_neurons);
+    #pragma omp parallel for schedule(static) if(n > 10000)
+    for (int i = 0; i < n; ++i) {
+      size_t slot = static_cast<size_t>(i) * ring_size + ring_head;
       i_syn[i] += delay_buffer[slot];
       delay_buffer[slot] = 0.0f;
     }

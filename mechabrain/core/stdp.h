@@ -82,7 +82,9 @@ inline void NeuromodulatorUpdate(NeuronArray& neurons, const SynapseTable& synap
   float da_factor = std::max(0.0f, 1.0f - nmp.da_decay * dt_ms);
   float ser_factor = std::max(0.0f, 1.0f - nmp.serotonin_decay * dt_ms);
   float oa_factor = std::max(0.0f, 1.0f - nmp.oa_decay * dt_ms);
-  for (size_t i = 0; i < neurons.n; ++i) {
+  const int n_neurons = static_cast<int>(neurons.n);
+  #pragma omp parallel for schedule(static) if(n_neurons > 10000)
+  for (int i = 0; i < n_neurons; ++i) {
     neurons.dopamine[i] *= da_factor;
     neurons.serotonin[i] *= ser_factor;
     neurons.octopamine[i] *= oa_factor;
